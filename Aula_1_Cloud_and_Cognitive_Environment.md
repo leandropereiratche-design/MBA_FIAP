@@ -233,7 +233,7 @@ Pense no seu contexto profissional atual (ou empresa que conhece bem).
 
 a) Descreva um sistema/carga de trabalho (sem dados permitidos — pode ser genérico) b) Qual dos 6 Rs você aplicaria? Justifique custo, risco, ganho, prazo c) Que serviço AWS usaria? Estimativa mensal? d) Maior obstáculo técnico ou organizacional? Como endereçaria?
 
-#### Resposta — Contexto: Plataforma de Analytics, Inteligência de Negócios e Conciliação Pós-Transacional (Rede Global de Pagamentos)
+#### Resposta — Contexto: Caso 1 - Plataforma de Analytics, Inteligência de Negócios e Conciliação Pós-Transacional (Rede Global de Pagamentos)
 
 * **a) Descrição do sistema / carga de trabalho:**
   * Trata-se de um **portal interno e pipeline analítico de conciliação e inteligência de transações (pós-autorização)** utilizado por times de BI, FinOps e parceiros emissores para consultar históricos de liquidação, relatórios de *chargeback* e métricas de volume transacional.
@@ -265,8 +265,59 @@ a) Descreva um sistema/carga de trabalho (sem dados permitidos — pode ser gen�
     1. **Escopo Zero-PCI (*Tokenization* na origem):** Garantir arquiteturalmente que nenhum dado sensível de titular de cartão (PAN/CVV) saia do ambiente *on-premise* — enviando para a AWS apenas identificadores tokenizados e dados agregados, reduzindo drasticamente o escopo de auditoria PCI-DSS.
     2. **Landing Zone e Controles Preventivos:** Utilizar a *Landing Zone* corporativa já homologada com **AWS Organizations (SCPs)**, tráfego
    
+#### Resposta — Contexto: Caso 2 - Portal Corporativo de *Supply Chain* e Desenvolvimento de Produtos (Varejo de Moda)
+
+- **a) Descrição do sistema / carga de trabalho:**
+  - Trata-se de um **portal corporativo de *Supply Chain* e desenvolvimento de produtos** de uma grande varejista de moda brasileira, utilizado por aproximadamente **800 profissionais internos** (desenvolvimento de produto, estilo e compras) e **mais de 450 fornecedores globais** para planejamento de coleções, negociação, aprovação e acompanhamento de pedidos até o recebimento nos Centros de Distribuição (CDs).
+  - **Importante (Escopo e Gargalo Atual):** Opera sobre uma versão antiga e altamente customizada do **Microsoft Dynamics CRM**. O principal ponto de falha está nas integrações síncronas e frágeis com o **Oracle Retail Merchandising System (RMS)**, que geram quedas de comunicação, necessidade de reprocessamento manual e inconsistências nos pedidos e prazos de entrega.
+
+- **b) Estratégia dos 6 Rs aplicada e justificativa (Custo, Risco, Ganho e Prazo):**
+  - **Estratégia escolhida:** **Refactor (*Re-arquitetar*) incremental** — iniciar pela desacoplagem e modernização da integração com o RMS e substituir progressivamente os módulos customizados do Dynamics por microsserviços orientados aos domínios de produto e compras, com mensageria assíncrona e recuperação de falhas (premissa a ser validada na fase de descoberta frente à alternativa de manter o Dynamics e modernizar apenas as integrações).
+  - **Custo:** **Investimento inicial elevado** em engenharia, descoberta de regras, testes, migração de dados e capacitação, além do custo temporário de operação simultânea (*dual-run*). A economia líquida virá da eliminação de retrabalho operacional e da desativação gradual de licenças e componentes legados dispensáveis.
+  - **Risco:** **Moderado a alto**, devido às regras de negócio não documentadas, fortes dependências entre sistemas e impacto direto no abastecimento das lojas. Mitigado por meio de pilotos controlados, migração gradual, reconciliação contínua de dados e planos de retorno (*rollback*).
+  - **Ganho:** Alta confiabilidade nas integrações, evolução independente dos fluxos de aprovação e colaboração com fornecedores e visibilidade ponta a ponta dos pedidos. Metas iniciais (sujeitas ao *baseline*): reduzir em **80%** as falhas com intervenção manual, diminuir em **30%** o tempo de aprovação e disponibilizar **95%** das atualizações de recebimento em até **5 minutos**.
+  - **Prazo:** **Médio a longo prazo (12 meses)** para o escopo priorizado com equipe multidisciplinar dedicada:
+    - **Mês 1:** Descoberta de regras, mapeamento de integrações, *baseline* de indicadores e definição de escopo.
+    - **Meses 2 e 3:** Fundação na AWS e piloto da integração mais crítica com o RMS.
+    - **Meses 4 a 9:** Migração progressiva dos módulos priorizados de produto, compras e aprovações.
+    - **Meses 10 a 12:** Ampliação de uso, reconciliação, estabilização e descomissionamento dos módulos substituídos (a retirada total do Dynamics dependerá das dependências mapeadas na descoberta).
+
+- **c) Serviços AWS recomendados e estimativa mensal:**
+  - **Arquitetura AWS (Premissas: região `us-east-1`, topologia Multi-AZ, até 1.700 usuários ativos/mês, ~5 milhões de chamadas de API e 500 mil eventos/mês, 1 TB de arquivos, 200 GB de banco, 100 GB CDN e 20 GB de logs/mês):**
+    - **Frontend e Proteção:** **Amazon CloudFront**, **Amazon S3** e **AWS WAF** para entrega estática e proteção de borda.
+    - **APIs, Autenticação e Balanceamento:** **Amazon API Gateway (REST)** com **VPC Link** para **Application Load Balancer (ALB)** interno, e **Amazon Cognito** (SSO corporativo, MFA por aplicativo e RBAC por perfil/fornecedor).
+    - **Backend / Computação:** **Amazon ECS com AWS Fargate (Linux ARM)** — 2 serviços com 2 tarefas cada (`2 vCPU` / `4 GB RAM`), distribuídos em Multi-AZ com margem de 20% para escala.
+    - **Mensageria e Integração Assíncrona:** **AWS Lambda**, **Amazon SQS FIFO** (com *Dead Letter Queues* — DLQs) para ordenação de pedidos e **Amazon EventBridge** para distribuição de eventos e notificações.
+    - **Banco de Dados e Armazenamento:** **Amazon RDS for PostgreSQL (`db.r6g.large`)** Multi-AZ com 1 réplica de leitura, `200 GB gp3` e *backups* de 7 dias; **Amazon S3 Standard** (`1 TB`) para documentos e imagens de coleções.
+    - **Rede, Segurança e Observabilidade:** Duas **AWS Site-to-Site VPN**, dois **NAT Gateways**, **Amazon CloudWatch**, **AWS CloudTrail**, **AWS KMS**, **AWS Secrets Manager** e **Amazon ECR**, além de ambiente de homologação reduzido sob demanda.
+  - **Estimativa mensal aproximada (infraestrutura AWS — produção e homologação):**
+    - **Frontend e Proteção (CloudFront + S3 + WAF):** ~**US$ 40,00 – 80,00/mês**
+    - **APIs, Autenticação e ALB (API Gateway + Cognito + ALB):** ~**US$ 65,00 – 110,00/mês**
+    - **Computação (Amazon ECS / Fargate Linux ARM):** ~**US$ 280,00/mês** (~US$ 231 base + 20% provisão de escala)
+    - **Integração Assíncrona (Lambda + SQS FIFO + EventBridge):** ~**US$ 20,00 – 50,00/mês**
+    - **Banco de Dados (Amazon RDS PostgreSQL Multi-AZ):** ~**US$ 400,00 – 500,00/mês**
+    - **Armazenamento (Amazon S3 Standard — 1 TB):** ~**US$ 25,00 – 40,00/mês**
+    - **Conectividade e Rede (2x Site-to-Site VPN + 2x NAT Gateways):** ~**US$ 170,00 – 250,00/mês**
+    - **Observabilidade e Segurança (CloudWatch + CloudTrail + KMS + Secrets + ECR):** ~**US$ 50,00 – 100,00/mês**
+    - **Ambiente de Homologação (escalonado por horário comercial):** ~**US$ 100,00 – 200,00/mês**
+    - **Total estimado:** **~US$ 1.150,00 – 1.610,00/mês** (faixa executiva recomendada de **US$ 1.200 a US$ 1.700/mês** ou **US$ 14.400 a US$ 20.400/ano**, excluindo engenharia, licenças legadas, tributos e eventual *AWS Direct Connect*; *Savings Plans* serão avaliados após estabilização do consumo).
+
+- **d) Maior obstáculo técnico ou organizacional e como endereçá-lo:**
+  - **Maior obstáculo:** **Preservar a integridade dos pedidos durante a convivência (*dual-run*) entre Dynamics, nova plataforma e Oracle RMS**, diante de regras pouco documentadas, falhas de rede e transações distribuídas com resultado incerto.
+  - **Como endereçaria:**
+    1. **Descoberta e Validação de Regras:** Mapear customizações, *workflows* e exceções junto às áreas de produto, compras e logística, convertendo cenários críticos em critérios de aceite automatizados.
+    2. **Migração Incremental (*Strangler Fig*):** Redirecionar chamadas progressivamente dos formulários e *workflows* do Dynamics para os novos microsserviços, validando funcionalmente cada módulo antes de avançar.
+    3. **Definição Clara de *Source of Truth*:** Manter o RMS como autoridade para pedidos oficiais e recebimentos publicados; atribuir propostas e aprovações à nova plataforma nos módulos migrados e ao Dynamics nos remanescentes, com pontos explícitos de transferência de escrita.
+    4. **Publicação Confiável (*Transactional Outbox*):** Gravar a alteração de negócio e o respectivo evento na mesma transação local no PostgreSQL, utilizando um *worker* assíncrono para publicar na fila e evitar perda de mensagens em caso de falha.
+    5. **Idempotência e Tratamento de Resultados Incertos:** Implementar chaves de idempotência por operação, registros persistentes e ordenação por pedido no `SQS FIFO`. Caso o RMS processe uma requisição e a resposta se perca, o adaptador deve consultar o estado no RMS antes de reenviar.
+    6. **Operação de DLQs e Reconciliação Contínua:** Estabelecer responsáveis e SLAs internos para monitorar idade das mensagens, tratar falhas em *Dead Letter Queues* (DLQs) e executar rotinas de batimento de divergências entre os sistemas.
+    7. **Governança de Virada pelo Calendário do Varejo:** Alinhar janelas de *freeze* e *cutover* aos ciclos de compras, embarques e datas sazonais críticas, garantindo plano de *rollback* que preserve os dados gerados na nova plataforma.
+
 
 ---
+
+
+
 
 ## 🔴 Nível 3 — Avançado: IaC e Automação
 
